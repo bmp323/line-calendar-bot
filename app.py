@@ -91,7 +91,10 @@ def advanced_parse(text):
         "location": location,
         "details": f"元メッセージ: {text}"
     }
-    return "https://www.google.com/calendar/render?" + urllib.parse.urlencode(params)
+        # URL生成（末尾にLINE用のパラメータを追加）
+    base_url = "https://www.google.com/calendar/render?" + urllib.parse.urlencode(params)
+    return base_url + "&openExternalBrowser=1"
+
 
 @app.route("/callback", methods=['POST'])
 def callback():
