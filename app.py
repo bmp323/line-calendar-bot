@@ -17,61 +17,60 @@ def advanced_parse(text):
     now = datetime.datetime.now()
     target_date = now  # デフォルトは今日
 
-    # --- 1. 具体的な日付の解析 (2027年10月15日 や 10月15日) ---
-    # パターン: (西暦年)? 月 日
+    # --- 1. 日付解析 ---
+    # 2027年10月15日 or 10月15日
     date_match = re.search(r'((\d{4})年)?(\d{1,2})月(\d{1,2})日', text)
-    # パターン: (西暦年)? / / (2027/10/15 や 10/15)
+    # 2027/10/15 or 10/15
     slash_match = re.search(r'((\d{4})/)?(\d{1,2})/(\d{1,2})', text)
 
     if date_match:
-        year_str = date_match.group(2)
-        month = int(date_match.group(3))
-        day = int(date_match.group(4))
-        year = int(year_str) if year_str else now.year
-        # 年またぎの配慮（例: 今が12月で「1月」と言われたら来年と解釈するなど）は今回は割愛し、指定がなければ今年のまま
-        try:
-            target_date = target_date.replace(year=year, month=month, day=day)
-        except ValueError:
-            pass # 存在しない日付などは無視して今日にする
-            
+        y, m, d = date_match.group(2), int(date_match.group(3)), int(date_match.group(4))
+        year = int(y) if y else now.year
+        try: target_date = target_date.replace(year=year, month=m, day=d)
+        except: pass
     elif slash_match:
-        year_str = slash_match.group(2)
-        month = int(slash_match.group(3))
-        day = int(slash_match.group(4))
-        year = int(year_str) if year_str else now.year
-        try:
-            target_date = target_date.replace(year=year, month=month, day=day)
-        except ValueError:
-            pass
-
-    # --- 2. 相対日付の解析 (明日・明後日) ---
-    # 具体的な日付指定がなかった場合のみ判定
+        y, m, d = slash_match.group(2), int(slash_match.group(3)), int(slash_match.group(4))
+        year = int(y) if y else now.year
+        try: target_date = target_date.replace(year=year, month=m, day=d)
+        except: pass
+    
+    # 日付指定がなく、明日・明後日のキーワードがある場合
     elif "明日" in text:
         target_date += datetime.timedelta(days=1)
     elif "明後日" in text:
         target_date += datetime.timedelta(days=2)
 
-    # --- 3. その他の要素解析 ---
-    # 人物
-    person_match = re.search(r'([^ ]+?)([さん|様|君|氏])と?', text)
-    person = person_match.group(0).replace("と", "") if person_match else ""
-
-    # 時間
+    # --- 2. 時間解析とURL生成の分岐 ---
     hour_match = re.search(r'(\d{1,2})時', text)
-    hour = int(hour_match.group(1)) if hour_match else 12 # 指定なければ12時
     
-    # 場所
+    if hour_match:
+        # ■ 時間がある場合：これまで通り時間を指定
+        hour = int(hour_match.group(1))
+        start_dt = target_date.replace(hour=hour, minute=0, second=0)
+        end_dt = start_dt + datetime.timedelta(hours=1)
+        # 秒まで指定する形式 (YYYYMMDDThhmmss)
+        time_range = f"{start_dt.strftime('%Y%m%dT%H%M%S')}/{end_dt.strftime('%Y%m%dT%H%M%S')}"
+    else:
+        # ■ 時間がない場合：終日イベントとして扱う
+        # 終日の場合、URLの dates は「開始日/終了日」だが、
+        # 終了日は「翌日」を指定するのがGoogleカレンダーのルール
+        start_dt = target_date
+        end_dt = start_dt + datetime.timedelta(days=1)
+        # 時間を入れない形式 (YYYYMMDD)
+        time_range = f"{start_dt.strftime('%Y%m%d')}/{end_dt.strftime('%Y%m%d')}"
+
+    # --- 3. その他の解析 ---
     location_match = re.search(r'([^ ]+?)で', text)
     location = location_match.group(1) if location_match else ""
 
-    # タイトル掃除（日付や時間をタイトルから消す）
+    person_match = re.search(r'([^ ]+?)([さん|様|君|氏])と?', text)
+    person = person_match.group(0).replace("と", "") if person_match else ""
+
+    # タイトル掃除
     clean_title = text
-    # 消すワードリスト
     remove_keywords = [
-        r'((\d{4})年)?(\d{1,2})月(\d{1,2})日', # 日付(日本語)
-        r'((\d{4})/)?(\d{1,2})/(\d{1,2})',    # 日付(スラッシュ)
-        "明日", "明後日", "今日", 
-        r'\d{1,2}時', "で", "から", "の", person
+        r'((\d{4})年)?(\d{1,2})月(\d{1,2})日', r'((\d{4})/)?(\d{1,2})/(\d{1,2})',
+        "明日", "明後日", "今日", r'\d{1,2}時', "で", "から", "の", person
     ]
     for kw in remove_keywords:
         clean_title = re.sub(kw, "", clean_title)
@@ -80,10 +79,6 @@ def advanced_parse(text):
     display_title = f"【{person}】{clean_title}" if person else clean_title
 
     # URL生成
-    start_dt = target_date.replace(hour=hour, minute=0, second=0)
-    end_dt = start_dt + datetime.timedelta(hours=1)
-    time_range = f"{start_dt.strftime('%Y%m%dT%H%M%S')}/{end_dt.strftime('%Y%m%dT%H%M%S')}"
-    
     params = {
         "action": "TEMPLATE",
         "text": display_title,
@@ -91,11 +86,11 @@ def advanced_parse(text):
         "location": location,
         "details": f"元メッセージ: {text}"
     }
-        # URL生成（末尾にLINE用のパラメータを追加）
-    base_url = "https://www.google.com/calendar/render?" + urllib.parse.urlencode(params)
-    return base_url + "&openExternalBrowser=1"
+    
+    # 外部ブラウザで開くオプション付き
+    return "https://www.google.com/calendar/render?" + urllib.parse.urlencode(params) + "&openExternalBrowser=1"
 
-
+# LINE設定
 @app.route("/callback", methods=['POST'])
 def callback():
     signature = request.headers['X-Line-Signature']
@@ -108,20 +103,15 @@ def callback():
 
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
-    # エラーで止まらないようにtry-exceptで囲む
     try:
         url = advanced_parse(event.message.text)
         reply_msg = f"予定を作成しました！\n\n{url}"
     except Exception as e:
-        reply_msg = "ごめんなさい、うまく解析できませんでした。"
-        print(e)
+        print(f"Error: {e}")
+        reply_msg = "解析できませんでした。"
         
-    line_bot_api.reply_message(
-        event.reply_token,
-        TextSendMessage(text=reply_msg)
-    )
+    line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply_msg))
 
 if __name__ == "__main__":
-    # Renderなどの環境でポートを正しく受け取るための設定
     port = int(os.getenv("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
