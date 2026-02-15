@@ -122,4 +122,6 @@ def handle_message(event):
     )
 
 if __name__ == "__main__":
-    app.run()
+    # Renderなどの環境でポートを正しく受け取るための設定
+    port = int(os.getenv("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
